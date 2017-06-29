@@ -1,0 +1,88 @@
+FROM phusion/baseimage
+MAINTAINER James Leonis <docker-contact@jamesleonis.com>
+
+##################
+# Basic Software #
+##################
+
+# Point to the most recent PPA sources for:
+#   #{git, vim}
+RUN echo "Apt cachebuster" && \
+    add-apt-repository ppa:git-core/ppa && \
+    add-apt-repository ppa:pi-rho/dev && \
+    apt-get update
+
+# Bare install of dependencies
+RUN apt-get -y install --no-install-recommends \
+      openjdk-8-jre \
+      python
+
+# Dev software
+RUN apt-get -y install \
+      build-essential \
+      curl \
+      git \
+	  iputils-ping \
+      man \
+      tmux \
+      tree \
+      vim \
+      wget \
+      zip unzip
+
+# Amazon AWS CLI
+RUN curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip" && \
+    unzip awscli-bundle.zip && \
+    ./awscli-bundle/install -b ~/bin/aws && \
+    rm -rf awscli-bundle/ awscli-bundle.zip
+
+####################################
+# Dotfiles and other configuration #
+####################################
+
+# Download and install my dot files
+RUN git clone --recursive https://github.com/jamesleonis/dotfiles.git && \
+    for df in $(find /dotfiles -iname "*symlink"); \
+      do \
+        target=$(echo $df | sed -r "s:.*/(.*).symlink:$HOME/.\1:"); \
+        rm -rf $target; \
+        ln -s $df $target; \
+      done && \
+    vim -E -s -c "source ~/.vimrc" -c PluginInstall -c qa
+
+###################
+# Clojure tooling #
+###################
+
+ENV LEIN_ROOT yes
+RUN wget -O /usr/bin/lein https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein && \
+    chmod +x /usr/bin/lein && \
+    echo '(System/exit 0)' | lein repl
+
+ENV BOOT_AS_ROOT yes
+RUN wget -O /usr/bin/boot https://github.com/boot-clj/boot-bin/releases/download/latest/boot.sh && \
+    chmod +x /usr/bin/boot && \
+    boot -u && \
+    boot repl -e '(System/exit 0)'
+
+##################################
+# Security credential management #
+##################################
+
+# Mount my SSH credentials and other secret information
+# NOTE: Can we use `docker secret`?
+COPY ssh .ssh
+RUN mv .ssh $HOME/ && \
+    chmod -R 600 $HOME/.ssh
+
+# TODO: AWS Credentials, maybe with `docker secret`
+
+#######################
+# Workbench directory #
+#######################
+
+RUN mkdir /app
+WORKDIR /app
+VOLUME /app
+
+CMD /bin/bash
